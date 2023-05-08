@@ -197,3 +197,6 @@ Error: Division by zero is not allowed.
 - If a function is not found or an error occurs during execution, an exception will be raised. Make sure to handle exceptions as needed.
 - The `LIPClient` class provides a `refresh_sockets` method to rescan for available sockets. Call this method when you want to update the list of available functions.
 - Ensure the `/tmp` directory is writable, as the codebase uses it to create Unix domain socket files.
+
+## Author
+ - Twitter - [Calvin Schultz](https://twitter.com/0000CCS)
