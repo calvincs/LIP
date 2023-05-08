@@ -31,11 +31,11 @@
 #         print("Server shutting down...")
 #         lipc.call_function("/tmp/python_add_two_ints.sock", [], {"exit": True})
 import time
-import lipc_module as lipc
+import lip as lip
 import logging
 
 
-@lipc.LIPCModule(lru=True)
+@lip.LIPModule(lru=True)
 def cpu_intensive_sum_of_squares(n):
     """
     This function calculates the sum of squares from 1 to n.
@@ -59,4 +59,4 @@ if __name__ == '__main__':
             time.sleep(5)
     except KeyboardInterrupt:
         print("Server shutting down...")
-        lipc.call_function("/tmp/python_add_two_ints.sock", [], {"exit": True})
+        lip.call_function("/tmp/python_add_two_ints.sock", [], {"exit": True})
