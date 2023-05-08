@@ -5,13 +5,14 @@ import functools
 from functools import lru_cache
 import socket
 import os
-import threading
 import time
 import traceback
 import glob
 from typing import List, Any, Optional
 import cbor2
 import inspect
+import multiprocessing
+
 
 class LIPModule:
     def __init__(self, log_level=logging.INFO, lru=False, lru_max=0):
@@ -34,10 +35,13 @@ class LIPModule:
 
     def start_server(self, socket_path, func):
         self.logger.info(f"Starting server thread for {socket_path} for function {func.__name__}")
-        server_thread = threading.Thread(target=self.server_handler, args=(socket_path, func))
-        server_thread.daemon = True
-        server_thread.start()
-        self.server_started = True
+        self.server_process = multiprocessing.Process(target=self.server_handler, args=(socket_path, func))
+        self.server_process.start()
+
+    def terminate(self):
+        if self.server_process is not None:
+            self.server_process.terminate()
+            self.server_process.join()
 
 
     def server_handler(self, socket_path, func):
@@ -122,15 +126,11 @@ class LIPModule:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             init_server = kwargs.pop('init', False)
-            should_exit = kwargs.pop('exit', False)
 
-            if should_exit and self.server_started:
-                return
-
-            if init_server and not self.server_started:
-                self.logger.info(f"Starting server thread for {socket_path} for function {func.__name__}")
+            if init_server:
+                self.logger.info(f"Starting server process for {socket_path} for function {func.__name__}")
                 self.start_server(socket_path, func)
-                return socket_path
+                return self
 
             return func(*args, **kwargs)
 
