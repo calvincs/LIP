@@ -31,21 +31,18 @@
 #         print("Server shutting down...")
 #         lipc.call_function("/tmp/python_add_two_ints.sock", [], {"exit": True})
 import time
-from functools import lru_cache
 import lipc_module as lipc
+import logging
 
-lipc_module = lipc.LIPCModule()
 
-@lipc_module
-def add_two_ints(x, y):
-    for i in range(10):
-        print(f"Adding {x} and {y}...")
-        x += y
-    return x
-
-@lipc_module
-@lru_cache()
+@lipc.LIPCModule(lru=True)
 def cpu_intensive_sum_of_squares(n):
+    """
+    This function calculates the sum of squares from 1 to n.
+
+    :param n: The number to calculate the sum of squares up to.
+    :return: The sum of squares from 1 to n.
+    """
     total = 0
     for i in range(1, n + 1):
         total += i * i
@@ -54,7 +51,7 @@ def cpu_intensive_sum_of_squares(n):
 if __name__ == '__main__':
     print("Initializing functions...")
     #socket_path = add_two_ints(init=True, debug=True)
-    socket_path = cpu_intensive_sum_of_squares(init=True, lru=True)
+    socket_path = cpu_intensive_sum_of_squares(init=True)
     print("Server running...")
 
     try:

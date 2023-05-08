@@ -2,6 +2,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from logging.handlers import RotatingFileHandler
 import functools
+from functools import lru_cache
 import socket
 import os
 import threading
@@ -12,27 +13,31 @@ from typing import List, Any, Optional
 import cbor2
 
 class LIPCModule:
-    def __init__(self, log_level=logging.INFO):
+    def __init__(self, log_level=logging.INFO, lru=False, lru_max=0):
         self.server_started = False
         self.log_level = log_level
+        self.lru = lru
+        self.lru_max = lru_max if lru_max > 0 else None
+
 
     def setup_logging(self, func_name):
         log_formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
         log_filename = f"log_{func_name}.log"
         log_handler = RotatingFileHandler(log_filename, maxBytes=10*1024*1024, backupCount=5)
         log_handler.setFormatter(log_formatter)
-
         logger = logging.getLogger(func_name)
         logger.setLevel(self.log_level)
         logger.addHandler(log_handler)
         return logger
 
+
     def start_server(self, socket_path, func):
-        print(f"Starting server thread for {socket_path}")
+        self.logger.info(f"Starting server thread for {socket_path} for function {func.__name__}")
         server_thread = threading.Thread(target=self.server_handler, args=(socket_path, func))
         server_thread.daemon = True
         server_thread.start()
         self.server_started = True
+
 
     def server_handler(self, socket_path, func):
         with ThreadPoolExecutor() as executor:
@@ -50,6 +55,7 @@ class LIPCModule:
                     conn, addr = s.accept()
                     executor.submit(self.connection_handler, conn, func)
 
+
     def connection_handler(self, conn, func):
         with conn:
             try:
@@ -60,6 +66,11 @@ class LIPCModule:
                 enc_data = cbor2.loads(data)
                 args = enc_data.get("args", [])
                 kwargs = enc_data.get("kwargs", {})
+                request_type = enc_data.get("type", "call")
+
+                if request_type == "docstring":
+                    conn.sendall(cbor2.dumps({"result": func.__doc__}))
+                    return
 
                 start_time = time.time()
                 result = func(*args, **kwargs)
@@ -79,12 +90,16 @@ class LIPCModule:
             except Exception as e:
                 self.logger.error(traceback.print_exc())
 
+
     def __call__(self, func):
         # Derive the socket_path based on the function name
         socket_path = f"/tmp/lipcm-{func.__name__}.sock"
 
         # Set up logging
         self.logger = self.setup_logging(func.__name__)
+
+        if self.lru:
+            func = lru_cache(self.lru_max)(func)
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -104,7 +119,6 @@ class LIPCModule:
         return wrapper
 
 
-
 class LIPCClient:
     def __init__(self):
         self.sockets = self.scan_sockets()
@@ -114,11 +128,35 @@ class LIPCClient:
         sockets = {}
         for socket_path in socket_paths:
             func_name = os.path.basename(socket_path)[len('lipcm-'):-len('.sock')]
-            sockets[func_name] = {"socket_path":socket_path, "func_name":func_name}
+            sockets[func_name] = {"socket_path": socket_path, "func_name": func_name}
         return sockets
 
     def refresh_sockets(self) -> None:
         self.sockets = self.scan_sockets()
+
+
+    def get_docstring(self, func_name: str) -> Optional[str]:
+        if func_name not in self.sockets:
+            raise ValueError(f"Function '{func_name}' not found in available sockets.")
+
+        socket_path = self.sockets[func_name]["socket_path"]
+
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.connect(socket_path)
+                s.sendall(cbor2.dumps({"type": "docstring"}))
+
+                data = s.recv(1024)
+                if not data:
+                    return None
+
+                data = cbor2.loads(data)
+                return data.get("result", None)
+
+        except Exception:
+            print(traceback.print_exc())
+            raise
+
 
     def call_function(self, func_name: str, args: List[Any] = None, kwargs: dict = None) -> Optional[Any]:
         if args is None:
