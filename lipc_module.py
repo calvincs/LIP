@@ -11,6 +11,7 @@ import traceback
 import glob
 from typing import List, Any, Optional
 import cbor2
+import inspect
 
 class LIPCModule:
     def __init__(self, log_level=logging.INFO, lru=False, lru_max=0):
@@ -71,24 +72,41 @@ class LIPCModule:
                 if request_type == "docstring":
                     conn.sendall(cbor2.dumps({"result": func.__doc__}))
                     return
+                
+                # Validate arguments and keyword arguments
+                sig = inspect.signature(func)
+                try:
+                    sig.bind(*args, **kwargs)
+                except TypeError as e:
+                    self.logger.error(f"Invalid arguments or keyword arguments: {str(e)}")
+                    conn.sendall(cbor2.dumps({"error": str(e)}))
+                    return
 
-                start_time = time.time()
-                result = func(*args, **kwargs)
-                end_time = time.time()
+                # Execute the function, catching any exceptions, and return the result
+                try:
+                    start_time = time.time()
+                    result = func(*args, **kwargs)
+                    end_time = time.time()
+                    elapsed_time = end_time - start_time
 
-                elapsed_time = end_time - start_time
+                    # Log execution information
+                    log_message = f"{func.__name__} called with args: {args}, kwargs: {kwargs}, time: {elapsed_time:.4f} seconds"
+                    self.logger.debug(log_message)
+
+                except Exception as e:
+                    log_message = f"{func.__name__} called with args: {args}, kwargs: {kwargs}, error: {str(traceback.format_exc())}"
+                    self.logger.error(log_message)
+                    conn.sendall(cbor2.dumps({"error": str(e)}))
+                    return
 
                 try:
                     conn.sendall(cbor2.dumps({"result": result}))
                 except BrokenPipeError:
                     self.logger.warning("Client disconnected, continuing...")
 
-                # Log execution information
-                log_message = f"{func.__name__} called with args: {args}, kwargs: {kwargs}, time: {elapsed_time:.4f} seconds"
-                self.logger.debug(log_message)
-
             except Exception as e:
-                self.logger.error(traceback.print_exc())
+                log_message = f"{func.__name__} uncaught exception: {str(e)} in connection_handler: {traceback.format_exc()}"
+                self.logger.error(traceback.format_exc())
 
 
     def __call__(self, func):
@@ -117,6 +135,7 @@ class LIPCModule:
             return func(*args, **kwargs)
 
         return wrapper
+
 
 
 class LIPCClient:
@@ -180,6 +199,9 @@ class LIPCClient:
                     return None
 
                 data = cbor2.loads(data)
+                if "error" in data:
+                    raise ValueError(data["error"])
+                
                 return data.get("result", None)
 
         except Exception:
