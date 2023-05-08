@@ -5,20 +5,16 @@ import functools
 import socket
 import os
 import threading
-import json
 import time
 import traceback
 import glob
 from typing import List, Any, Optional
-
+import cbor2
 
 class LIPCModule:
     def __init__(self, log_level=logging.INFO):
         self.server_started = False
-        self.lru_enabled = False
-        self.cached_func = None
         self.log_level = log_level
-
 
     def setup_logging(self, func_name):
         log_formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
@@ -31,14 +27,12 @@ class LIPCModule:
         logger.addHandler(log_handler)
         return logger
 
-
     def start_server(self, socket_path, func):
         print(f"Starting server thread for {socket_path}")
         server_thread = threading.Thread(target=self.server_handler, args=(socket_path, func))
         server_thread.daemon = True
         server_thread.start()
         self.server_started = True
-
 
     def server_handler(self, socket_path, func):
         with ThreadPoolExecutor() as executor:
@@ -56,7 +50,6 @@ class LIPCModule:
                     conn, addr = s.accept()
                     executor.submit(self.connection_handler, conn, func)
 
-
     def connection_handler(self, conn, func):
         with conn:
             try:
@@ -64,31 +57,27 @@ class LIPCModule:
                 if not data:
                     return
 
-                json_data = json.loads(data.decode("utf-8"))
-                args = json_data.get("args", [])
-                kwargs = json_data.get("kwargs", {})
+                enc_data = cbor2.loads(data)
+                args = enc_data.get("args", [])
+                kwargs = enc_data.get("kwargs", {})
 
                 start_time = time.time()
-                if self.lru_enabled:
-                    result = self.cached_func(*args, **kwargs)
-                else:
-                    result = func(*args, **kwargs)
+                result = func(*args, **kwargs)
                 end_time = time.time()
 
                 elapsed_time = end_time - start_time
 
                 try:
-                    conn.sendall(json.dumps({"result": result}).encode("utf-8"))
+                    conn.sendall(cbor2.dumps({"result": result}))
                 except BrokenPipeError:
                     self.logger.warning("Client disconnected, continuing...")
 
                 # Log execution information
-                log_message = f"{func.__name__} called with args: {args}, kwargs: {kwargs}, time: {elapsed_time:.4f} seconds, lru_enabled: {self.lru_enabled}"
+                log_message = f"{func.__name__} called with args: {args}, kwargs: {kwargs}, time: {elapsed_time:.4f} seconds"
                 self.logger.debug(log_message)
 
             except Exception as e:
                 self.logger.error(traceback.print_exc())
-
 
     def __call__(self, func):
         # Derive the socket_path based on the function name
@@ -100,13 +89,7 @@ class LIPCModule:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             init_server = kwargs.pop('init', False)
-            lru = kwargs.pop('lru', False)
-            lru_size = kwargs.pop('lru_size', None)
             should_exit = kwargs.pop('exit', False)
-
-            if lru and not self.lru_enabled:
-                self.cached_func = functools.lru_cache(maxsize=lru_size)(func)
-                self.lru_enabled = True
 
             if should_exit and self.server_started:
                 return
@@ -137,7 +120,7 @@ class LIPCClient:
     def refresh_sockets(self) -> None:
         self.sockets = self.scan_sockets()
 
-    def call_function(self, func_name: str, *args, **kwargs) -> Optional[Any]:
+    def call_function(self, func_name: str, args: List[Any] = None, kwargs: dict = None) -> Optional[Any]:
         if args is None:
             args = []
 
@@ -152,14 +135,14 @@ class LIPCClient:
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
                 s.connect(socket_path)
-                s.sendall(json.dumps({"args": args, "kwargs": kwargs}).encode("utf-8"))
+                s.sendall(cbor2.dumps({"args": args, "kwargs": kwargs}))
 
                 data = s.recv(1024)
                 if not data:
                     return None
 
-                json_data = json.loads(data.decode("utf-8"))
-                return json_data.get("result", None)
+                data = cbor2.loads(data)
+                return data.get("result", None)
 
         except Exception:
             print(traceback.print_exc())

@@ -31,6 +31,7 @@
 #         print("Server shutting down...")
 #         lipc.call_function("/tmp/python_add_two_ints.sock", [], {"exit": True})
 import time
+from functools import lru_cache
 import lipc_module as lipc
 
 lipc_module = lipc.LIPCModule()
@@ -43,6 +44,7 @@ def add_two_ints(x, y):
     return x
 
 @lipc_module
+@lru_cache()
 def cpu_intensive_sum_of_squares(n):
     total = 0
     for i in range(1, n + 1):

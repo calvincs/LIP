@@ -38,7 +38,7 @@ def main():
         lipc = LIPCClient()
         counter = 0
         start_time = time.time()  # Record the start time
-        for i in range(2000):
+        for i in range(20000):
             lipc.call_function("cpu_intensive_sum_of_squares", [i], {})
         end_time = time.time()  # Record the end time
         elapsed_time = end_time - start_time  # Calculate the time taken
