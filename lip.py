@@ -137,15 +137,25 @@ class LIPModule:
         """
         with conn:
             try:
-                data = conn.recv(1024)
+                # Receive the data from the client, chunk by chunk if necessary
+                data = b''
+                while True:
+                    chunk = conn.recv(1024)
+                    if not chunk:
+                        break
+                    data += chunk
+                    if len(chunk) < 1024:
+                        break
                 if not data:
                     return
 
+                # Decode the data and extract the arguments, keyword arguments, and request type
                 enc_data = cbor2.loads(data)
                 args = enc_data.get("args", [])
                 kwargs = enc_data.get("kwargs", {})
                 request_type = enc_data.get("type", "call")
 
+                # If the request type is docstring, return the docstring
                 if request_type == "docstring":
                     conn.sendall(cbor2.dumps({"result": func.__doc__}))
                     return
@@ -317,7 +327,15 @@ class LIPClient:
                 s.connect(socket_path)
                 s.sendall(cbor2.dumps({"args": args, "kwargs": kwargs}))
 
-                data = s.recv(1024)
+                # Receive the data from the server, chunk by chunk if necessary
+                data = b''
+                while True:
+                    chunk = s.recv(1024)
+                    if not chunk:
+                        break
+                    data += chunk
+                    if len(chunk) < 1024:
+                        break
                 if not data:
                     return None
 

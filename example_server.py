@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 
 import time
+import logging
 import lip as lip
 
 
-@lip.LIPModule(lru=True)
+@lip.LIPModule(lru=True, log_level=logging.DEBUG)
 def cpu_intensive_sum_of_squares(n):
     """
     This function calculates the sum of squares from 1 to n.
@@ -45,7 +46,7 @@ if __name__ == '__main__':
         print("Server running...")
 
         # Do some work after the threads are running... 
-        for x in range(5):
+        for x in range(120):
             print(f"\r\033[KCounting 120 sheep...{x} Then ending the server", end="", flush=True)
             time.sleep(1)
 

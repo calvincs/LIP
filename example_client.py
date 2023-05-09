@@ -6,8 +6,8 @@ import lip
 client = lip.LIPClient()
 
 # Call cpu_intensive_sum_of_squares function and print the result
-result1 = client.call_function("cpu_intensive_sum_of_squares", args=[5])
-print(f"Sum of squares up to 5: {result1}")  # Output: 55
+result1 = client.call_function("cpu_intensive_sum_of_squares", args=[500])
+print(f"Sum of squares up to 5: {result1}")  # Output: 41791750
 print()
 
 # Call add_ints function with a list of integers and print the result
