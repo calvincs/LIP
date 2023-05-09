@@ -15,14 +15,45 @@ import multiprocessing
 
 
 class LIPModule:
-    def __init__(self, log_level=logging.INFO, lru=False, lru_max=0):
+    """
+        This class is used to decorate functions that will be run as a server.
+        The decorator will start a server process that will listen for connections
+        on a Unix socket. The server process will handle incoming connections
+        and execute the decorated function with the provided arguments and keyword
+        arguments. The result of the function will be returned to the client.
+
+        :param log_level: The log level for the server process.
+        :param lru: Enable Least Recently Used (LRU) caching for the function.
+        :param lru_max: The maximum number of items to store in the LRU cache.
+
+        :return: The result of the function.
+    """
+
+
+    def __init__(self, log_level: int = logging.INFO, lru: bool = False, lru_max: int = 0):
+        """
+            This function initializes the LIPModule class.
+
+            :param log_level: The log level for the server process.
+            :param lru: Enable Least Recently Used (LRU) caching for the function.
+            :param lru_max: The maximum number of items to store in the LRU cache.
+
+            :return: None
+        """
         self.server_started = False
         self.log_level = log_level
         self.lru = lru
         self.lru_max = lru_max if lru_max > 0 else None
 
 
-    def setup_logging(self, func_name):
+    def setup_logging(self, func_name: str) -> logging.Logger:
+        """
+            This function sets up logging for the server process.
+
+            :param func_name: The name of the function being decorated.
+
+            :return: The logger object.
+        """
         log_formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
         log_filename = f"log_{func_name}.log"
         log_handler = RotatingFileHandler(log_filename, maxBytes=10*1024*1024, backupCount=5)
@@ -33,18 +64,40 @@ class LIPModule:
         return logger
 
 
-    def start_server(self, socket_path, func):
+    def start_server(self, socket_path: str, func: callable) -> None:
+        """
+            This function starts the server process.
+
+            :param socket_path: The path to the Unix socket.
+            :param func: The function to be decorated.
+
+            :return: None
+        """
         self.logger.info(f"Starting server thread for {socket_path} for function {func.__name__}")
         self.server_process = multiprocessing.Process(target=self.server_handler, args=(socket_path, func))
         self.server_process.start()
 
-    def terminate(self):
+
+    def terminate(self) -> None:
+        """
+            This function terminates the server process.
+
+            :return: None
+        """
         if self.server_process is not None:
             self.server_process.terminate()
             self.server_process.join()
 
 
-    def server_handler(self, socket_path, func):
+    def server_handler(self, socket_path: str, func: callable) -> None:
+        """
+            This function starts the server and handles incoming connections.
+
+            :param socket_path: The path to the Unix socket.
+            :param func: The function to be decorated.
+
+            :return: None
+        """
         with ThreadPoolExecutor() as executor:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
                 try:
@@ -61,7 +114,15 @@ class LIPModule:
                     executor.submit(self.connection_handler, conn, func)
 
 
-    def connection_handler(self, conn, func):
+    def connection_handler(self, conn: socket.socket, func: callable) -> None:
+        """
+            This function handles the connection to the client.
+
+            :param conn: The connection object.
+            :param func: The function to be decorated.
+
+            :return: None
+        """
         with conn:
             try:
                 data = conn.recv(1024)
@@ -113,7 +174,14 @@ class LIPModule:
                 self.logger.error(traceback.format_exc())
 
 
-    def __call__(self, func):
+    def __call__(self, func: callable):
+        """
+            This function is called when the decorator is used.
+
+            :param func: The function to be decorated.
+
+            :return: The wrapper function.
+        """
         # Derive the socket_path based on the function name
         socket_path = f"/tmp/lipcm-{func.__name__}.sock"
 
@@ -124,7 +192,7 @@ class LIPModule:
             func = lru_cache(self.lru_max)(func)
 
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args, **kwargs) -> callable:
             init_server = kwargs.pop('init', False)
 
             if init_server:
@@ -139,10 +207,31 @@ class LIPModule:
 
 
 class LIPClient:
+    """
+        This class is used to call functions that are decorated with the LIPModule decorator.
+        The client will connect to the server process via a Unix socket and send the arguments
+        and keyword arguments to the server. The server will execute the function and return
+        the result to the client.
+
+        :return: The result of the function.
+    """
+
+
     def __init__(self):
+        """
+            This function initializes the LIPClient class.
+
+            :return: None
+        """
         self.sockets = self.scan_sockets()
 
+
     def scan_sockets(self) -> dict:
+        """
+            This function scans the /tmp directory for Unix sockets that are used by the server processes.
+
+            :return: A dictionary of sockets.
+        """
         socket_paths = glob.glob('/tmp/lipcm-*.sock')
         sockets = {}
         for socket_path in socket_paths:
@@ -150,11 +239,24 @@ class LIPClient:
             sockets[func_name] = {"socket_path": socket_path, "func_name": func_name}
         return sockets
 
+
     def refresh_sockets(self) -> None:
+        """
+            This function refreshes the list of available sockets (functions).
+
+            :return: None
+        """
         self.sockets = self.scan_sockets()
 
 
     def get_docstring(self, func_name: str) -> Optional[str]:
+        """
+            This function returns the docstring for the specified function.
+
+            :param func_name: The name of the function to get the docstring for.
+
+            :return: The docstring for the function.
+        """
         if func_name not in self.sockets:
             raise ValueError(f"Function '{func_name}' not found in available sockets.")
 
@@ -178,6 +280,15 @@ class LIPClient:
 
 
     def call_function(self, func_name: str, args: List[Any] = None, kwargs: dict = None) -> Optional[Any]:
+        """
+            This function calls the specified function with the provided arguments and keyword arguments.
+
+            :param func_name: The name of the function to call.
+            :param args: A list of arguments to pass to the function.
+            :param kwargs: A dictionary of keyword arguments to pass to the function.
+
+            :return: The result of the function.
+        """
         if args is None:
             args = []
 
@@ -208,5 +319,11 @@ class LIPClient:
             print(traceback.print_exc())
             raise
 
+
     def list_functions(self) -> List[str]:
+        """
+            This function returns a list of available functions.
+
+            :return: A list of available functions.
+        """
         return list(self.sockets.keys())
