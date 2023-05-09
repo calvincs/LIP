@@ -45,14 +45,14 @@ if __name__ == '__main__':
         print("Server running...")
 
         # Do some work after the threads are running... 
-        for x in range(60):
-            print(f"Counting sheep...{x}")
+        for x in range(5):
+            print(f"\r\033[KCounting 120 sheep...{x} Then ending the server", end="", flush=True)
             time.sleep(1)
 
     except Exception as e:
         print(e)
     finally:
-        print("Shutting down services...")
+        print("\nShutting down services...")
         s_add_ints.terminate()
         s_cpu_intensive_sum_of_squares.terminate()
         print("Done!")

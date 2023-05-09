@@ -87,6 +87,13 @@ class LIPModule:
         if self.server_process is not None:
             self.server_process.terminate()
             self.server_process.join()
+            socket_path = f"/tmp/lipcm-{self.server_process.name}.sock"
+            try:
+                os.unlink(socket_path)
+                self.logger.info(f"Removed socket entry for {self.server_process.name}")
+            except OSError:
+                if os.path.exists(socket_path):
+                    self.logger.warning(f"Failed to remove socket entry for {self.server_process.name}")
 
 
     def server_handler(self, socket_path: str, func: callable) -> None:
@@ -98,20 +105,25 @@ class LIPModule:
 
             :return: None
         """
-        with ThreadPoolExecutor() as executor:
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-                try:
-                    os.unlink(socket_path)
-                except OSError:
-                    if os.path.exists(socket_path):
-                        raise
+        try:
+            with ThreadPoolExecutor() as executor:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                    try:
+                        os.unlink(socket_path)
+                    except OSError:
+                        if os.path.exists(socket_path):
+                            raise
 
-                s.bind(socket_path)
-                s.listen(1)
+                    s.bind(socket_path)
+                    s.listen(1)
 
-                while True:
-                    conn, addr = s.accept()
-                    executor.submit(self.connection_handler, conn, func)
+                    while True:
+                        conn, addr = s.accept()
+                        executor.submit(self.connection_handler, conn, func)
+        
+        except Exception as e:
+            log_message = f"Server process for {func.__name__} encountered an error: {str(traceback.format_exc())}"
+            self.logger.error(log_message)
 
 
     def connection_handler(self, conn: socket.socket, func: callable) -> None:
@@ -314,6 +326,9 @@ class LIPClient:
                     raise ValueError(data["error"])
                 
                 return data.get("result", None)
+
+        except ConnectionRefusedError as e:
+            raise ConnectionError(f"Could not connect to socket at {socket_path}: {e}") from e
 
         except Exception:
             print(traceback.print_exc())
